@@ -114,14 +114,25 @@ def write_normal_dat_file(daily_normal_prcp, filename):
         f.write("2010%02d,%s\n" % (m+1, ",".join([str(x) for x in daily_normal_prcp[m]])))
     f.close()
 
-s = StationNormals("USC00010008.normals.txt")
-d = Dly('USC00010008.dly')
+def write_running_data_and_normals(dly_input_filename,                 # USC00010008.dly
+                                   normals_input_filename,              # USC00010008.normals.txt
+                                   running_data_output_filename,
+                                   running_normals_output_filename,
+                                   N):
+    s = StationNormals(normals_input_filename)
+    d = Dly(dly_input_filename)
+    ytd_normal_prcp     = s.normals['Precipitation-Related']['Daily']['ytd-prcp-normal']
+    daily_normal_prcp   = ytd_to_daily_prcp(ytd_normal_prcp)
+    running_normal_prcp = daily_normal_prcp_to_running_prcp(daily_normal_prcp, N)
+    daily_prcp          = d.data['PRCP']
+    running_prcp        = daily_prcp_to_running_prcp(daily_prcp, daily_normal_prcp, N)
+    write_daily_dat_file(running_prcp, running_data_output_filename)
+    print "wrote %s" % running_data_output_filename
+    write_normal_dat_file(running_normal_prcp, running_normals_output_filename)
+    print "wrote %s" % running_normals_output_filename
 
-ytd_normal_prcp     = s.normals['Precipitation-Related']['Daily']['ytd-prcp-normal']
-daily_normal_prcp   = ytd_to_daily_prcp(ytd_normal_prcp)
-running_normal_prcp = daily_normal_prcp_to_running_prcp(daily_normal_prcp, 30)
-daily_prcp          = d.data['PRCP']
-running_prcp        = daily_prcp_to_running_prcp(daily_prcp, daily_normal_prcp, 30)
-
-write_daily_dat_file(running_prcp, 'foo.dat')
-write_normal_dat_file(running_normal_prcp, 'foo-normal.dat')
+### write_running_data_and_normals('USC00010008.dly',
+###                                'USC00010008.normals.txt',
+###                                'foo-data.dat',
+###                                'foo-normals.dat',
+###                                30)
