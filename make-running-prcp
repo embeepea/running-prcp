@@ -1,0 +1,169 @@
+#! /usr/bin/python
+
+# /home/mbp/public_html/ghcn-mirror/datfiles/PRCP/USC00010008.dat
+# /home/mbp/public_html/climate-normals-data/for-ghcn/datfiles/NORMAL_YTD_PRCP/USC00010008.dat
+
+
+import os, re, sys
+
+def get_daily_normal_prcp(filename):
+    f = open(filename, 'r')
+    data = []
+    p_prev = 0
+    val = None
+    for line in f:
+        line = line.strip()
+        fields = re.split(r'\s*,\s*', line)
+        if len(fields) < 20:
+            continue
+        vals = []
+        for p in [float(x) for x in fields[1:]]:
+            if val == None:
+                val = p
+            else:
+                val = p - p_prev
+            vals.append(val)
+            p_prev = p
+        data.append(vals)
+    f.close()
+    return data
+
+def get_daily_prcp(filename):
+    f = open(filename, 'r')
+    data = []
+    for line in f:
+        line = line.strip()
+        fields = re.split(r'\s*,\s*', line)
+        if len(fields) < 20:
+            continue
+        m = re.match(r'(\d{4})(\d{2})', fields[0])
+        if not m:
+            continue
+        year  = int(m.group(1))
+        month = int(m.group(2))
+        data.append({ 'year' : year, 'month' : month, 'values' : fields[1:]})
+    f.close()
+    return data
+
+def get_running_daily_normal_prcp(normal_prcp, N):
+    running = []
+    data = [];
+
+    # pre-populate data array with `None`s
+    for month in normal_prcp:
+        vals = []
+        for day in month:
+            vals.append(None)
+        data.append(vals)
+
+    # go through data once, populating results
+    for m in range(0,12):
+        for d in range(0,len(data[m])):
+            p = normal_prcp[m][d]
+            if len(running) >= N:
+                running.pop()
+                running.insert(0,p)
+                data[m][d] = sum(running)
+            else:
+                running.insert(0,p)
+
+    # go through data one more time, to populate Nones at beginning:
+    done = False
+    for m in range(0,12):
+        if done:
+            break
+        for d in range(0,len(data[m])):
+            if data[m][d] != None:
+                done = True
+                break
+            p = normal_prcp[m][d]
+            if len(running) >= N:
+                running.pop()
+                running.insert(0,p)
+                data[m][d] = sum(running)
+            else:
+                running.insert(0,p)
+
+    return data
+
+def get_running_daily_prcp(daily_prcp, normal_prcp, N):
+    running = []
+    data = []
+    for d in daily_prcp:
+        # have d.year, d.month, d.values
+        values = []
+        for i in range(0,len(d['values'])):
+            val = d['values'][i]
+            if len(running) >= N:
+                running.pop()
+            if val == 'M':
+                val = normal_prcp[d['month']-1][i]
+            else:
+                val = float(val)
+            running.insert(0,val)
+            values.append(sum(running))
+        data.append({'year' : d['year'], 'month' : d['month'], 'values' : values})
+    return data
+
+
+#    data = [];
+#    for i in normal_prcp:
+#        for j = normal_prcp[i]:
+#        # have d.year, d.month, d.values
+#        values = []
+#        for i in range(0,len(d['values'])):
+#            val = normal_prcp[d['month']-1][i]
+#            running.insert(0,val)
+#            values.append(sum(running))
+#        data.append({'year' : d['year'], 'month' : d['month'], 'values' : values})
+#    return data
+
+
+def write_running_normal_prcp(station_id, running_daily_normal_prcp):
+    filename = "/home/mbp/public_html/climate-normals-data/for-ghcn/datfiles/NORMAL_RUNNING_30DAY_PRCP/%s.dat" % station_id
+    f = open(filename, 'w')
+    for m in range(0,len(running_daily_normal_prcp)):
+        f.write("2010%02d,%s\n" % (m+1,",".join([str(x) for x in running_daily_normal_prcp[m]])))
+    f.close()
+    print "wrote %s" % filename
+
+def write_running_prcp(station_id, running_daily_prcp):
+    filename = "/home/mbp/public_html/ghcn-mirror/datfiles/RUNNING_30DAY_PRCP/%s.dat" % station_id
+    f = open(filename, 'w')
+    for e in running_daily_prcp:
+        yyyy = e['year']
+        mm = e['month']
+        f.write("%04d%02d,%s\n" % (yyyy, mm, ",".join([("%.1f" % (x/100.0)) for x in e['values']])))
+    f.close()
+    print "wrote %s" % filename
+
+
+
+def do_station(station_id):
+    daily_normal_prcp         = get_daily_normal_prcp("/home/mbp/public_html/climate-normals-data/for-ghcn/datfiles/NORMAL_YTD_PRCP/%s.dat" % station_id)
+    running_daily_normal_prcp = get_running_daily_normal_prcp(daily_normal_prcp, 30)
+    daily_prcp                = get_daily_prcp("/home/mbp/public_html/ghcn-mirror/datfiles/PRCP/%s.dat" % station_id)
+    running_daily_prcp        = get_running_daily_prcp(daily_prcp, daily_normal_prcp, 30)
+    write_running_normal_prcp(station_id, running_daily_normal_prcp)
+    write_running_prcp(station_id, running_daily_prcp)
+
+
+
+
+#print get_running_daily_normal_prcp('USC00010008', 30)
+#do_station('USC00010008')
+#do_station('foo')
+
+ids_of_stations_having_normals = [ re.sub(r'\.dat$', '', file) for file in os.listdir("/home/mbp/public_html/climate-normals-data/for-ghcn/datfiles/NORMAL_YTD_PRCP") ]
+
+ids_of_stations_having_data =  [ re.sub(r'\.dat$', '', file) for file in os.listdir("/home/mbp/public_html/ghcn-mirror/datfiles/PRCP/") ]
+
+have_data = {}
+
+for id in ids_of_stations_having_data:
+    have_data[id] = True
+
+for id in ids_of_stations_having_normals:
+    if id in have_data:
+        do_station(id)
+        sys.exit()
