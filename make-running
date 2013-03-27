@@ -3,8 +3,7 @@
 import sys, re
 sys.path.append('py-normals')
 from StationNormals import StationNormals
-
-s = StationNormals("USC00010008.normals.txt")
+from Dly import Dly
 
 def ytd_to_daily_prcp(ytd_prcp):
     """Converts ytd precip to daily prcp.  ytd_prcp should be a 2D array of the form
@@ -62,51 +61,67 @@ def daily_normal_prcp_to_running_prcp(daily_normal_prcp, N):
             data[m][d] = sum(running)
     return data
 
-def get_daily_prcp(filename):
-    """Load daily prcp data from a file containing lines like the following:
-           194807,0,46,0,0,0,0,0,30,1778,358,64,168,333,41,0,142,0,0,203,0,0,0,0,20,0,0,0,356,0,13,0
-           194808,91,300,36,51,0,0,0,0,36,0,0,0,M,0,130,315,0,M,0,0,0,0,0,28,0,0,0,0,0,0,0
-       Returns an array containing one entry per line; each entry stores one month of data in an
-       object with keys `year`, `month`, and `values'.  So, for example, a file containing
-       the above two lines would be converted to the following:
-           [ { 'year' : 1948, 'month' : 7, 'values' : [0,46,0,0,0,0,0,30,1778,358,64,168,333,41,0,142,0,0,203,0,0,0,0,20,0,0,0,356,0,13,0] },
-             { 'year' : 1948, 'month' : 8, 'values' : [91,300,36,51,0,0,0,0,36,0,0,0,None,0,130,315,0,None,0,0,0,0,0,28,0,0,0,0,0,0,0] } ]
-       Missing data values, which are indicated by 'M' in the input file, are translated to `None`
-       in the returned object."""
-    f = open(filename, 'r')
-    data = []
-    for line in f:
-        line = line.strip()
-        fields = re.split(r'\s*,\s*', line)
-        if len(fields) < 20:
-            continue
-        m = re.match(r'(\d{4})(\d{2})', fields[0])
-        if not m:
-            continue
-        year  = int(m.group(1))
-        month = int(m.group(2))
-        data.append({ 'year' : year, 'month' : month, 'values' : [int(x) if x!="M" else None for x in fields[1:]]})
-    f.close()
+def daily_prcp_to_running_prcp(daily_prcp, daily_normal_prcp, N):
+    """Converts a daily prcp array to a running total prcp array.  daily_prcp should be
+    a array whose elements are objects of the form
+       { 'year' : 1948, 'month' : 7, values : [ ... ] }
+    (note that the month numbers in daily_prcp are 1-based!)  daily_normal_prcp should be
+    an array of the form daily_normal_prcp[m][d], where m is the (0-based) month number
+    and d is the (0-based) day number.  Returns an array of the same form as daily_prcp,
+    in which the entries represent running totals for the last N days.  For any days
+    in daily_prcp that have missing data, the corresponding day's value from daily_normal_prcp
+    is used."""
+    data = [];
+    running = []
+    for m in daily_prcp:
+        year  = m['year']
+        month = m['month']
+        values = []
+        for i in range(0,len(m['values'])):
+            v = m['values'][i]
+            if v < 0:
+                if i < len(daily_normal_prcp[month-1]):
+                    v = daily_normal_prcp[month-1][i]
+                else:
+                    v = None
+            if v is not None:
+                if len(running) >= N:
+                    running.pop()
+                running.insert(0, v if v is not None else daily_normal_prcp[year][month-1])
+                values.append(sum(running) if len(running)==N else None)
+        data.append({ 'year' : year, 'month' : month, 'values' : values })
     return data
 
 def print_normal_data(data):
     for m in data:
-        print " ".join([ ('***' if v is None else ("%3d" % v)) for v in m ])
+        print " ".join([ ('***' if v is None else ("%4d" % v)) for v in m ])
 
 def print_data(data):
     for y in data:
         print "%04d-%02d  %s" % (y['year'], y['month'], " ".join([ ('  **' if v is None else ("%4d" % v)) for v in y['values'] ]))
 
+def write_daily_dat_file(daily_prcp, filename):
+    f = open(filename, 'w')
+    for m in daily_prcp:
+        if m['values'][0] is None:
+            continue
+        f.write("%04d%02d,%s\n" % (m['year'], m['month'], ",".join( (str(x) if x is not None else 'M')  for x in m['values'])))
+    f.close()
+
+def write_normal_dat_file(daily_normal_prcp, filename):
+    f = open(filename, 'w')
+    for m in range(0,12):
+        f.write("2010%02d,%s\n" % (m+1, ",".join([str(x) for x in daily_normal_prcp[m]])))
+    f.close()
+
+s = StationNormals("USC00010008.normals.txt")
+d = Dly('USC00010008.dly')
+
 ytd_normal_prcp     = s.normals['Precipitation-Related']['Daily']['ytd-prcp-normal']
 daily_normal_prcp   = ytd_to_daily_prcp(ytd_normal_prcp)
 running_normal_prcp = daily_normal_prcp_to_running_prcp(daily_normal_prcp, 30)
+daily_prcp          = d.data['PRCP']
+running_prcp        = daily_prcp_to_running_prcp(daily_prcp, daily_normal_prcp, 30)
 
-daily_prcp          = get_daily_prcp('sample.prcp.dat')
-
-print_data(daily_prcp)
-
-### print "daily_normal_prcp:"
-### print_normal_data( daily_normal_prcp )
-### 
-### print "running_normal_prcp:"
-### print_normal_data( running_normal_prcp )
+write_daily_dat_file(running_prcp, 'foo.dat')
+write_normal_dat_file(running_normal_prcp, 'foo-normal.dat')
