@@ -1,0 +1,3 @@
+[submodule "py-normals"]
+	path = py-normals
+	url = git@github.com:embeepea/py-normals.git
